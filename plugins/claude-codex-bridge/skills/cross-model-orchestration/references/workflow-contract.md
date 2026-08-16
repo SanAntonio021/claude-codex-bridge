@@ -16,6 +16,9 @@
 - 已有活动 job 时只能查询该 job；不得重发、猜测最新线程、使用 `--resume-last` 或绕过 bridge。
 - `review_peer` 是 inline、zero-tool 的只读调用；`review_repair_peer` 是一次调用：审查者在固定副本
   中检查并按 `artifactMode` 返回完整 artifact 或受控文件变更，测试由 bridge 负责；作者主项目不直接暴露。
+- `peer_status.active=true` 与 `capabilities.inlineReviews=true` 才允许 inline 调用。workspace 调用还必须
+  有 `capabilities.workspaceRepairs=true` 和 `workspaceProbeState=available`；`pending`/`unavailable` 时
+  零工具审查仍可用，但 workspace 修订、结构化测试和同步一律不得创建 job。
 - 审查结果不是执行授权。正式计划通过互审后仍须用户明确确认。
 - 通道异常、模型不匹配、格式错误、越界写入、基线漂移、超时或取消立即失败关闭，不算“需修改”。
 - `review_repair` 的结果在 bridge 同步前必须包含对应的 `PLAN_REVIEW` 或 `DELIVERABLE_REVIEW`
@@ -53,13 +56,14 @@
 `artifactSha256`；不得复用旧轮次或文件元数据中的值。`review_peer` 的 `artifactMode` 和工作区字段
 由工具固定。`review_repair_peer` 必须显式提供 `artifactMode`；workspace 模式要求绝对 `targetRoot`
 和非空 `repairTargets`，plan 只能有一个与 `artifactPath` 相同的 `modify` 目标；inline 模式禁止
-工作区和测试字段并要求模型返回完整 `repairedArtifact`。无测试时 workspace 传 `testCommands=[]`；
+工作区和测试字段并要求模型返回完整 `repairedArtifact`。只有当前 `peer_status` 已报告
+`workspaceRepairs=true` 与 `workspaceProbeState=available` 时才可选择 workspace；无测试时 workspace 传 `testCommands=[]`；
 不向 Claude 暴露 Bash。需要测试时逐条提供 `{program, programBytes, programSha256, args, timeoutMs}`，
 其中 program 必须是未链接的绝对 `.exe`，由 bridge 的 Codex sandbox 在固定副本内执行。
 
 ## 发起与快照
 
-两端统一调用（URL 由作者角色决定）：
+两端统一调用（URL 由作者角色决定；首次进入和 workspace 前先读取 `peer_status`）：
 
 ```text
 review_peer(complete inline envelope) 或 review_repair_peer(artifactMode + complete envelope)
@@ -148,14 +152,17 @@ Windows bridge 子进程固定 `include_environment_context=true` 和
 
 ## 三轮与用户确认
 
-1. 作者通过对应角色端点发起第 1 轮，保存 job ID、`seriesVersion` 和 manifest。
+1. 作者通过对应角色端点发起第 1 轮，保存 job ID、`seriesVersion` 和（仅 workspace 时的）manifest。
 2. `通过`：正式计划进入用户确认门；显式交付物审查返回原作者独立验收。
-3. `需修改`：作者检查同步结果并修订，更新内容、哈希，并把前轮 findings 和 open items 放入新一轮
-   `question`、`constraints` 或 `artifactContent`，携带上一轮 `seriesVersion`/`latestJobId` 再发第 2/3 轮。
+3. `需修改`：inline 结果由作者在主项目中自行修订，workspace 先检查同步结果；随后更新内容、哈希，
+   并把前轮 findings 和 open items 放入新一轮 `question`、`constraints` 或 `artifactContent`，携带上一轮
+   `seriesVersion`/`latestJobId` 再发第 2/3 轮。
 4. 第 3 轮仍需修改，或出现无法由新证据消除的冲突：停止并输出 `DISAGREEMENT_REPORT`。
 5. 不发第 4 轮。计划互审通过不代表用户已授权执行。
 
-执行和交付阶段不自动再次调用对方模型。用户明确启用的跨模型执行工作流可以保留最多三次
+执行和交付阶段不自动再次调用对方模型。`v2_workspace_capability_unavailable` 是环境能力失败，
+不是“需修改”；对显式 workspace 请求必须输出 `PEER_REVIEW_FAILURE_REPORT`，不创建 job、不重发、
+不静默改为 inline。用户明确启用的跨模型执行工作流可以保留最多三次
 “返工 -> 独立验收”循环；每次不通过必须指出文件、证据和通过判据，第三次仍不通过时停止并等待
 用户决定。审查通道失败不能伪装成普通验收失败。
 

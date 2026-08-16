@@ -59,16 +59,25 @@ allowed-tools:
 | Claude Code CLI | `http://127.0.0.1:43123/mcp/claude` | `CLAUDE_CODEX_BRIDGE_CLAUDE_TOKEN` | Codex |
 
 正式互审的调用顺序固定为 `review_peer` 或 `review_repair_peer` -> `await_peer`（单次最多 45 秒）
--> `peer_result`；需要能力或单 job 状态时用 `peer_status`，第三轮用户裁决用
+-> `peer_result`；首次进入或考虑 workspace 模式时，先用 `peer_status` 读取能力；第三轮用户裁决用
 `adjudicate_peer_series`。不得扫描最新线程、直接调用 `/mcp` 兼容端点、`codex exec`、`claude -p`
 或 `codex@openai-codex` 绕过 bridge。`orchestration-control.mjs` 与 `check-resume-candidate.mjs`
 只用于历史状态测试和输入诊断，不是运行时入口。
 
-`review_peer` 固定为 `review_only + inline`：只读、零工具、不得声明工作区或测试命令。
-正式计划需要隔离副本修订时使用 `review_repair_peer`，并明确 `artifactMode=inline` 或 `workspace`。
-inline 修复返回完整 `repairedArtifact`，不使用工具；workspace 修复只允许显式 `repairTargets`，
-由 bridge 检查、同步和回滚。旧 `submit_peer(operation=review_repair)` 只保留一版兼容，正式流程不得
-继续使用；兼容调用缺字段时必须在创建 job 前返回 `missing_fields`。
+能力门固定如下：`peer_status.active=true` 和 `capabilities.inlineReviews=true` 是所有 v2 inline
+审查的前提；`review_repair_peer artifactMode=workspace` 还必须同时满足
+`capabilities.workspaceRepairs=true` 与 `workspaceProbeState=available`。`pending` 或 `unavailable`
+只表示当前进程尚未证明 Windows workspace sandbox，不影响零工具 inline 审查。
+
+`review_peer` 固定为 `review_only + inline`：只读、零工具、不得声明工作区或测试命令。它是纯文字
+正式计划和普通审查在 workspace 能力不可用时的默认入口，作者自行采纳修改并重新计算下一轮身份。
+需要完整替换正文时使用 `review_repair_peer artifactMode=inline`；它也不使用工具，返回完整
+`repairedArtifact`。workspace 修复只允许显式 `repairTargets`，并由 bridge 检查、同步和回滚。
+如果用户明确要求 workspace 修订或结构化测试而能力为 `pending`/`unavailable`，不得提交该请求、
+不得创建 job、不得重启或改用其他 sandbox；输出 `PEER_REVIEW_FAILURE_REPORT`，
+`decisiveError=v2_workspace_capability_unavailable`。未经用户重新选择，不把 workspace 请求静默改成
+inline 修订。旧 `submit_peer(operation=review_repair)` 只保留一版兼容，正式流程不得继续使用；兼容调用
+缺字段时必须在创建 job 前返回 `missing_fields`。
 
 Codex 的只读 `review_peer` 使用 bridge 内部零工具执行。需要读取项目材料时不要伪装成普通 `ask`，
 应使用完整审查包；协议 v2 不把作者项目、daemon 状态、token 或保留 job 副本作为 Codex `ask` 的 cwd。
@@ -114,6 +123,7 @@ artifactMode=inline:
 artifactMode=workspace:
   targetRoot 为绝对路径；repairTargets 为非空的 {path, action} 数组；
   计划必须只有一个与 artifactPath 相同的 modify 目标；testCommands 可为 [] 或结构化命令数组。
+  仅当 peer_status 同时报告 workspaceRepairs=true 和 workspaceProbeState=available 时允许提交。
 ```
 
 结构化 `testCommands` 的每项是 `{program, programBytes, programSha256, args, timeoutMs}`：`program`
@@ -123,17 +133,17 @@ artifactMode=workspace:
 
 不要复用上一轮、文件元数据或先前消息中的字节数和哈希。先确定最终 `artifactContent`，再按它的
 UTF-8 编码计算两项身份并立即调用；内容发生任何变化都重新计算。正式文件还要给出 `artifactPath`，
-workspace 修复还要给出最小 `repairTargets`。bridge 会把目标根完整复制到固定副本并排除 `.git`，
+workspace 能力已经通过时才给出最小 `repairTargets`。bridge 会把目标根完整复制到固定副本并排除 `.git`，
 由 manifest、路径/链接检查和基线快照保护主项目。
 
 ## 三轮状态机
 
-1. 作者用同一 `artifactId`（默认也是 `seriesId`）调用 `review_peer` 或 `review_repair_peer` 发起第 1 轮，保存 job ID、基线 manifest 和结果 manifest。
-2. 只接受终态 `succeeded`、契约合法且方向/模型/权限证据匹配的结果；作者检查同步后的主项目。
+1. 作者用同一 `artifactId`（默认也是 `seriesId`）调用 `review_peer` 或 `review_repair_peer` 发起第 1 轮，保存 job ID、模式和（仅 workspace 时的）基线/结果 manifest。
+2. 只接受终态 `succeeded`、契约合法且方向/模型/权限证据匹配的结果；inline 由作者检查审查正文或 `repairedArtifact`，workspace 才检查同步后的主项目。
 3. `通过`：正式计划进入用户确认门；显式交付物审查则返回原作者独立验收。
-4. `需修改`：作者确认同步内容，修订主项目，重新计算字节数和 SHA-256，把上一轮 findings/未决项放入
-   下一轮 `question`、`constraints` 或 `artifactContent`，并携带上一轮返回的 `seriesVersion` 与
-   `latestJobId`。不要另开逻辑产物或猜测新线程。
+4. `需修改`：作者自行修订主项目（inline 不发生同步；workspace 先检查同步内容），重新计算字节数和
+   SHA-256，把上一轮 findings/未决项放入下一轮 `question`、`constraints` 或 `artifactContent`，并携带
+   上一轮返回的 `seriesVersion` 与 `latestJobId`。不要另开逻辑产物或猜测新线程。
 5. 第 3 轮仍需修改，或双方出现实质分歧：输出 `DISAGREEMENT_REPORT`，等待用户裁决，不发第 4 轮。
 
 审查通道不可用、超时、取消、认证/权限/sandbox 错误、格式错误、所选模型缺失或回执不匹配都不是
@@ -199,7 +209,8 @@ Codex 配置。Codex 先用原生补丁工具；只有该工具明确写入失�
 
 修改本 Skill 后，至少检查 `evals/evals.json`、`evals/trigger-evals.json`、`evals/integration-cases.md`，
 覆盖两方向正式计划自动触发、普通实质任务和内部清单跳过、显式交付物调用、`review_peer` 零工具、
-`review_repair_peer` 的 inline/workspace 两种模式、repair target/manifest 边界、三轮 CAS、用户确认门、
-审批同步、默认/显式/profile 路由、恢复时换模型被拒绝、结构化/空 `testCommands`、正文身份重算、
-通道不可用和非所选模型停止。源码推送后，只对本次改动的 Skill 使用定向 CC Switch
+`review_repair_peer` 的 inline/workspace 两种模式、workspace capability pending/unavailable 时的无 job
+失败关闭、repair target/manifest 边界、三轮 CAS、用户确认门、审批同步、默认/显式/profile 路由、恢复时
+换模型被拒绝、结构化/空 `testCommands`、正文身份重算、通道不可用和非所选模型停止。源码推送后，只对
+本次改动的 Skill 使用定向 CC Switch
 同步，并核对源码、CC Switch、Claude、Codex 四层文件集合和 SHA-256。

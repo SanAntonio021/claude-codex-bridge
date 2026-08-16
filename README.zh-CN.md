@@ -4,7 +4,7 @@
 Codex 在隔离产物或固定工作区副本中互相审查。审查者没有作者主工作区的直接写入
 路径；所有写回都经过 manifest、路径和基线检查。
 
-当前版本是 `0.5.0`，协议版本是 `2`。认证、模型路由、隔离、测试或同步证据缺失时
+当前版本是 `0.5.1`，协议版本是 `2`。认证、模型路由、隔离、测试或同步证据缺失时
 都会失败关闭，不会静默换模型或降级。英文文档见 [README.md](README.md)。
 
 ## 角色端点
@@ -30,6 +30,8 @@ Codex 在隔离产物或固定工作区副本中互相审查。审查者没有�
   - `inline`：zero-tool，结果返回完整 `repairedArtifact`。
   - `workspace`：固定副本、显式 `repairTargets`、manifest 同步门和 bridge 执行的
     结构化测试。
+- daemon 启动后 inline 审查立即可用。workspace 修复要等当前进程证明 Windows sandbox 边界；
+  `peer_status` 会报告 `inlineReviews`、`workspaceRepairs` 和 `workspaceProbeState`。
 - 基于 CAS 的审查系列，最多接受三轮。
 - 严格模型路由且没有回退；默认是 `claude-opus-5/max` 和 `gpt-5.6-sol/max`。
 
@@ -40,6 +42,8 @@ Codex 在隔离产物或固定工作区副本中互相审查。审查者没有�
 - v2 的 `review_peer` 和 inline `review_repair_peer` 不向模型开放任何工具。
   workspace 修复使用固定副本内的原生文件变更；测试是由 bridge sandbox 执行的精确
   `.exe`，不是 Claude Bash。
+- workspace 探针处于 pending 或失败时，workspace 修复、测试和同步保持禁用；不会因此关闭
+  单独的 zero-tool inline 审查。
 - 工作区会检查路径穿越、链接、`.git`、越界变更和作者侧基线漂移。删除、重命名、
   权限变化或目录替换需要单独的显式同步批准。
 - 公开失败信息只含脱敏摘要；原始事件、prompt、正文和结果只留在当前用户受保护的
@@ -142,6 +146,11 @@ token 放进 Git、命令参数或共享配置。
 - `inline` 禁止工作区和测试字段，返回完整 `repairedArtifact`。
 - `workspace` 需要绝对 `targetRoot`、非空 `repairTargets`，以及需要测试时的
   `{program, programBytes, programSha256, args, timeoutMs}` 结构化命令。
+
+选择 `workspace` 前先读取 `peer_status`：必须同时有
+`workspaceRepairs=true` 和 `workspaceProbeState=available`。否则 bridge 在创建 job 前返回
+`v2_workspace_capability_unavailable`。只需要审查时使用 `review_peer`；用户明确要求
+workspace 时不能静默改成 inline 修订。
 
 完整字段见插件中的
 [workflow-contract.md](plugins/claude-codex-bridge/skills/cross-model-orchestration/references/workflow-contract.md)。

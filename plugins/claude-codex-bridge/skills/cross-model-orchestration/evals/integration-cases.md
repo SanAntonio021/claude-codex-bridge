@@ -11,7 +11,7 @@
   推导，不在工具参数中传 `target` 或 `owner`。
 - 两端都只调用同一个 Streamable HTTP daemon；不调用 `/mcp` 兼容端点、stdio wrapper、
   `codex exec`、`claude -p`、`codex@openai-codex` 或隐藏 Hook。
-- endpoint、health、`peer_status` 和 job 证据都报告相同的 `version=0.5.0`、`build_id` 和
+- endpoint、health、`peer_status` 和 job 证据都报告相同的当前 `version`、`build_id` 和
   `protocol_version=2`；未注册 MCP 的宿主必须失败关闭并输出 `PEER_REVIEW_FAILURE_REPORT`。
 - 正式计划自动触发；普通读取/分析/代码修改/测试/提交、内部 Todo/`update_plan`、已确认计划执行和
   最终汇报都不创建 job；用户明确点名 Opus/Codex 或交付物审查时才显式进入。
@@ -23,6 +23,10 @@
 - `review_repair_peer` 必须显式传 `artifactMode=inline|workspace`。inline 不接受工作区/测试字段，
   并要求完整 `repairedArtifact`；workspace 要求绝对 `targetRoot` 和非空 `{path, action}` 数组。
   plan 只能有一个与 `artifactPath` 相同的 `modify` target。
+- 首次进入和每次选择 workspace 前读取 `peer_status`。`active=true` 与 `inlineReviews=true` 即可进行
+  零工具 inline 审查；workspace 还必须是 `workspaceRepairs=true`、`workspaceProbeState=available`。
+  `pending`/`unavailable` 时不得提交 workspace 请求或创建 job；纯审查继续用 `review_peer`，显式
+  workspace 需求输出 `v2_workspace_capability_unavailable` 失败报告，不能静默降级。
 - 发起前从完整 `artifactContent` 重新计算 UTF-8 `artifactBytes` 和 SHA-256；正文缺失、身份不匹配、
   空验收标准、相对路径非法或携带旧 `target/operation/round/allowedPaths` 字段时不创建 job。
 - workspace `testCommands` 只能是最多 16 项结构化命令：绝对普通 `.exe`、程序字节数、SHA-256、
@@ -62,14 +66,15 @@
 - bridge 渲染 `PLAN_REVIEW`/`DELIVERABLE_REVIEW` 五段结果：结论、已确认事项、问题与理由、必须修改、
   剩余风险；缺段、blocked/incomplete、失败测试写成通过或 JSON schema 错误都以 `peer_contract_error`
   失败关闭。
-- 第 1/2 轮需修改时，作者检查同步后的主项目，更新正文和身份并用 CAS 发下一轮；第 3 轮仍不通过或
+- 第 1/2 轮需修改时，inline 由作者自行修订主项目、workspace 才检查同步后的主项目；更新正文和身份
+  后用 CAS 发下一轮；第 3 轮仍不通过或
   实质分歧时只输出 `DISAGREEMENT_REPORT`，不发第 4 轮。通过后仍停在用户执行确认门。
 - 仅原作者签收同步后的文件、测试和验收；执行、返工和最终交付不自动追加相反方向互审。
 
 ## 确定性运行与发布
 
 - 运行 Skill 的 JSON 校验、`skill-creator` 快速检查、`orchestration-control` 测试和 Bridge 全量单元/集成
-  测试；不运行 live/Opus、daemon 启动或真实用户文件写入。
+  测试；不运行 live/Opus、生产 daemon 或真实用户文件写入。测试临时目录中的受控 daemon 允许启动。
 - Skill 与 Bridge 两个仓库分别精确暂存本任务路径，保留无关 dirty/untracked 文件；Skill 推送后用
   `Invoke-CcSwitchSkillSync.ps1` 传入精确 Skill 名和 40 位远端 SHA 定向同步，不直接改运行时目录或数据库。
 - 同步验收逐个比较 source、CC Switch、Claude、Codex 四层全部已提交 Skill 文件；任一层不一致只能报告

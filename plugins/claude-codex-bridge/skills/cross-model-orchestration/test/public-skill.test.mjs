@@ -23,6 +23,9 @@ test("public skill preserves the protocol-v2 review contract without local-machi
   assert.match(text, /\/mcp\/codex/u);
   assert.match(text, /\/mcp\/claude/u);
   assert.match(text, /zero-tool/u);
+  assert.match(text, /inlineReviews/u);
+  assert.match(text, /workspaceRepairs/u);
+  assert.match(text, /v2_workspace_capability_unavailable/u);
   assert.match(text, /seriesVersion/u);
   assert.match(text, /三轮|three-round|three rounds|round four/iu);
   assert.doesNotMatch(text, /[A-Za-z]:\\(?:Users|BaiduSyncdisk)\\/u);

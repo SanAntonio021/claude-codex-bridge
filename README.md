@@ -5,7 +5,7 @@ cross-model review between Claude Code and Codex. It gives the reviewer an
 isolated artifact or a fixed workspace copy; it never gives the reviewer a
 direct write path to the author's working tree.
 
-This is version `0.5.0`, with protocol version `2`. It fails closed when
+This is version `0.5.1`, with protocol version `2`. It fails closed when
 authentication, model routing, isolation, test, or synchronization evidence is
 incomplete. Chinese documentation: [README.zh-CN.md](README.zh-CN.md).
 
@@ -34,6 +34,10 @@ compatibility paths only. Do not register them for a protocol-v2 review flow.
   - `inline`: zero tools and a complete `repairedArtifact` in the result.
   - `workspace`: a fixed copy, explicit `repairTargets`, manifest-gated sync,
     and bridge-executed structured tests.
+- Inline review is available as soon as the daemon starts. Workspace repair is
+  separately enabled only after the current process proves its Windows sandbox
+  boundary; `peer_status` reports `inlineReviews`, `workspaceRepairs`, and
+  `workspaceProbeState`.
 - A CAS-protected review series with at most three accepted rounds.
 - Exact allowlisted model routing with no fallback. Defaults are
   `claude-opus-5/max` and `gpt-5.6-sol/max`.
@@ -46,6 +50,8 @@ compatibility paths only. Do not register them for a protocol-v2 review flow.
 - Protocol-v2 `review_peer` and inline `review_repair_peer` expose zero model
   tools. Workspace repair uses native file changes in the fixed copy; its tests
   are exact `.exe` invocations run by the bridge sandbox, not Claude Bash.
+- A pending or failed workspace probe never enables workspace repair, tests, or
+  synchronization. It does not disable the separate zero-tool inline path.
 - Workspaces are checked for path traversal, links, `.git`, out-of-scope
   changes, and author-side baseline drift. Deletion, rename, mode changes, and
   directory replacement require a separate explicit synchronization approval.
@@ -161,6 +167,13 @@ explicit `artifactMode`:
 - `workspace` requires an absolute `targetRoot`, non-empty `repairTargets`,
   and (when tests are needed) structured entries of
   `{program, programBytes, programSha256, args, timeoutMs}`.
+
+Before choosing `workspace`, read `peer_status`: it requires
+`workspaceRepairs=true` and `workspaceProbeState=available`. Otherwise the
+bridge rejects the request before creating a job with
+`v2_workspace_capability_unavailable`. Use `review_peer` for a review-only
+artifact; never silently substitute an inline repair for an explicit workspace
+request.
 
 The complete contract is bundled at
 [workflow-contract.md](plugins/claude-codex-bridge/skills/cross-model-orchestration/references/workflow-contract.md).

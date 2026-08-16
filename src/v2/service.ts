@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { atomicWriteJson, ensureProtectedDirectory } from "../daemon/atomic.js";
 import { BridgeError, asBridgeError, toStructuredError, type StructuredError } from "../errors.js";
@@ -25,7 +24,18 @@ import {
 } from "./types.js";
 import { V2WorkspaceManager, type V2WorkspaceHandle } from "./workspace.js";
 
+export type V2WorkspaceProbeState = "pending" | "available" | "unavailable";
+export type V2WorkspaceProbeReason =
+  | "not_started"
+  | "sandbox_checks_failed"
+  | "probe_error"
+  | "capability_persistence_failed";
+
 export interface V2Capabilities extends V2SandboxProbe {
+  inlineReviews: true;
+  workspaceRepairs: boolean;
+  workspaceProbeState: V2WorkspaceProbeState;
+  workspaceProbeReason?: V2WorkspaceProbeReason;
   buildId?: string;
 }
 
@@ -33,7 +43,41 @@ export interface V2ReviewServiceOptions {
   runtimeRoot: string;
   runner: V2AdapterRunner;
   sandboxRunner?: V2SandboxRunner;
-  probe?: (runtimeRoot: string) => Promise<V2Capabilities>;
+  probe?: (runtimeRoot: string) => Promise<V2SandboxProbe>;
+}
+
+function unavailableCapabilities(
+  state: Exclude<V2WorkspaceProbeState, "available">,
+  reason: V2WorkspaceProbeReason,
+): V2Capabilities {
+  return {
+    at: new Date().toISOString(),
+    v2WorkspaceTests: false,
+    workspaceWrite: false,
+    externalWriteDenied: false,
+    loopbackDenied: false,
+    internetDenied: false,
+    childInheritanceDenied: false,
+    childTreeTerminated: false,
+    inlineReviews: true,
+    workspaceRepairs: false,
+    workspaceProbeState: state,
+    workspaceProbeReason: reason,
+  };
+}
+
+function capabilitiesFromProbe(probe: V2SandboxProbe): V2Capabilities {
+  const { error: _ignored, ...checks } = probe;
+  const workspaceRepairs = probe.v2WorkspaceTests === true;
+  return {
+    ...checks,
+    inlineReviews: true,
+    workspaceRepairs,
+    workspaceProbeState: workspaceRepairs ? "available" : "unavailable",
+    ...(workspaceRepairs
+      ? {}
+      : { workspaceProbeReason: probe.error === undefined ? "sandbox_checks_failed" : "probe_error" }),
+  };
 }
 
 function structuredError(error: unknown, fallback = "v2_review_failed"): StructuredError {
@@ -130,8 +174,9 @@ export class V2ReviewService {
   readonly #workspace: V2WorkspaceManager;
   readonly #runner: V2AdapterRunner;
   readonly #sandbox: V2SandboxRunner;
-  readonly #probe: (runtimeRoot: string) => Promise<V2Capabilities>;
+  readonly #probe: (runtimeRoot: string) => Promise<V2SandboxProbe>;
   #capabilities: V2Capabilities | undefined;
+  #probeInFlight: Promise<V2Capabilities> | undefined;
 
   constructor(options: V2ReviewServiceOptions) {
     this.#runtimeRoot = resolve(options.runtimeRoot);
@@ -151,22 +196,41 @@ export class V2ReviewService {
     await ensureProtectedDirectory(this.#runtimeRoot);
     await Promise.all([this.#store.initialize(), this.#workspace.initialize()]);
     await this.#store.recoverUncertain();
+    // Inline review never exposes workspace or model tools. Do not make it wait for
+    // the slower, environment-dependent proof required only by workspace repair.
+    this.#capabilities = unavailableCapabilities("pending", "not_started");
     if (options.probe === true) {
-      const capabilities = await this.#probe(this.#runtimeRoot);
+      await this.refreshWorkspaceCapabilities();
+    }
+  }
+
+  async refreshWorkspaceCapabilities(): Promise<V2Capabilities> {
+    if (this.#probeInFlight !== undefined) {
+      return this.#probeInFlight;
+    }
+    this.#capabilities = unavailableCapabilities("pending", "not_started");
+    const refresh = (async (): Promise<V2Capabilities> => {
+      let capabilities: V2Capabilities;
+      try {
+        capabilities = capabilitiesFromProbe(await this.#probe(this.#runtimeRoot));
+      } catch {
+        capabilities = unavailableCapabilities("unavailable", "probe_error");
+      }
+      try {
+        await atomicWriteJson(this.#capabilityPath, capabilities, { protect: true });
+      } catch {
+        capabilities = unavailableCapabilities("unavailable", "capability_persistence_failed");
+      }
       this.#capabilities = capabilities;
-      await atomicWriteJson(this.#capabilityPath, capabilities, { protect: true });
-      return;
-    }
-    try {
-      const saved = JSON.parse(await readFile(this.#capabilityPath, "utf8")) as V2Capabilities;
-      if (typeof saved.v2WorkspaceTests === "boolean") {
-        this.#capabilities = saved;
+      return capabilities;
+    })();
+    this.#probeInFlight = refresh;
+    void refresh.finally(() => {
+      if (this.#probeInFlight === refresh) {
+        this.#probeInFlight = undefined;
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
-    }
+    });
+    return refresh;
   }
 
   capabilities(): V2Capabilities | undefined {
@@ -174,7 +238,11 @@ export class V2ReviewService {
   }
 
   isActive(): boolean {
-    return this.#capabilities?.v2WorkspaceTests === true;
+    return this.#capabilities?.inlineReviews === true;
+  }
+
+  workspaceRepairsAvailable(): boolean {
+    return this.#capabilities?.workspaceRepairs === true;
   }
 
   async submit(
@@ -182,14 +250,28 @@ export class V2ReviewService {
     value: unknown,
     configuration?: RoutingConfiguration,
   ): Promise<{ jobId: string; state: string; seriesVersion: number }> {
+    const request = parseV2ReviewRequest(value, owner, configuration);
     if (!this.isActive()) {
       throw new BridgeError(
-        "v2_capability_unavailable",
-        "Protocol v2 is inactive until the bundled Codex sandbox probe proves workspace writes, containment, network denial, and process-tree cleanup.",
+        "v2_inline_capability_unavailable",
+        "Protocol v2 inline review is unavailable because the service has not initialized its zero-tool boundary.",
         { httpStatus: 503 },
       );
     }
-    const request = parseV2ReviewRequest(value, owner, configuration);
+    if (request.artifactMode === "workspace" && !this.workspaceRepairsAvailable()) {
+      const capabilities = this.#capabilities;
+      throw new BridgeError(
+        "v2_workspace_capability_unavailable",
+        "Protocol v2 workspace repair is unavailable until the current process proves writes, containment, network denial, and process-tree cleanup.",
+        {
+          httpStatus: 503,
+          details: {
+            workspace_probe_state: capabilities?.workspaceProbeState ?? "pending",
+            workspace_probe_reason: capabilities?.workspaceProbeReason ?? "not_started",
+          },
+        },
+      );
+    }
     const submission = await this.#store.submit(request);
     void this.#execute(submission.job.jobId);
     return {

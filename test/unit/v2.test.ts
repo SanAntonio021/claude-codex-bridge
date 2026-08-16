@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { link, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -108,6 +108,17 @@ const activeProbe = async () => ({
   childTreeTerminated: true,
 });
 
+const unavailableProbe = async () => ({
+  at: new Date().toISOString(),
+  v2WorkspaceTests: false,
+  workspaceWrite: true,
+  externalWriteDenied: true,
+  loopbackDenied: false,
+  internetDenied: false,
+  childInheritanceDenied: false,
+  childTreeTerminated: true,
+});
+
 test("v2 structured test sandbox disables network and proxy transport", () => {
   const profile = "bridge_test";
   const argumentsList = buildSandboxArguments(
@@ -188,6 +199,60 @@ test("v2 inline review stores bridge-rendered result and does not accept a repai
     assert.match(result.renderedReview ?? "", /^PLAN_REVIEW/mu);
     assert.equal(result.adapterEvidence?.zeroTools, true);
     assert.equal(result.adapterEvidence?.reportedModel, "claude-opus-5");
+  } finally {
+    await removeFixture(root);
+  }
+});
+
+test("v2 preserves zero-tool inline review when the workspace sandbox proof fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-v2-inline-only-"));
+  const service = new V2ReviewService({
+    runtimeRoot: root,
+    runner: new StaticV2Runner(JSON.stringify(passingReview)),
+    probe: unavailableProbe,
+  });
+  try {
+    await service.initialize({ probe: true });
+    assert.equal(service.isActive(), true);
+    assert.equal(service.workspaceRepairsAvailable(), false);
+    assert.equal(service.capabilities()?.workspaceProbeState, "unavailable");
+    assert.equal(service.capabilities()?.workspaceProbeReason, "sandbox_checks_failed");
+
+    const inline = await service.submit("codex", {
+      operation: "review_only",
+      artifactMode: "inline",
+      question: "Check the inline-only plan.",
+      artifactId: "inline-only-plan",
+      artifactType: "plan",
+      artifactName: "plan.md",
+      artifactPath: "plan.md",
+      ...artifact(),
+      acceptanceCriteria: ["The scope is coherent."],
+      constraints: ["No writes."],
+    });
+    assert.equal((await service.wait(inline.jobId, 2_000)).state, "succeeded");
+
+    const jobsPath = join(root, "v2", "jobs");
+    const beforeRejectedWorkspace = await readdir(jobsPath);
+    await assert.rejects(
+      () => service.submit("codex", {
+        operation: "review_repair",
+        artifactMode: "workspace",
+        question: "Repair the plan in a workspace.",
+        artifactId: "blocked-workspace-plan",
+        artifactType: "plan",
+        artifactName: "plan.md",
+        artifactPath: "plan.md",
+        ...artifact(),
+        acceptanceCriteria: ["The scope is coherent."],
+        constraints: ["Only the plan may change."],
+        targetRoot: root,
+        repairTargets: [{ path: "plan.md", action: "modify" }],
+        testCommands: [],
+      }),
+      (error: unknown) => error instanceof BridgeError && error.code === "v2_workspace_capability_unavailable",
+    );
+    assert.deepEqual(await readdir(jobsPath), beforeRejectedWorkspace);
   } finally {
     await removeFixture(root);
   }

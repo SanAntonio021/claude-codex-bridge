@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - 2026-08-16
+
+- Split protocol-v2 capability reporting into always-zero-tool inline review
+  and independently proven workspace repair.
+- Moved the Windows workspace sandbox probe out of the daemon activation path;
+  pending or failed proof now rejects only workspace repair before job creation.
+- Added deterministic coverage for failed workspace probes, deferred daemon
+  startup, and the corresponding Skill capability gate.
+
 ## 0.5.0 - 2026-08-16
 
 - Promoted protocol v2 to the supported runtime surface with independently

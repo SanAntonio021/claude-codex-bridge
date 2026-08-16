@@ -62,6 +62,7 @@ export interface BridgeDaemonOptions {
   port?: number;
   tokenEnvironmentWriter?: TokenEnvironmentWriter;
   v2Service?: V2ReviewService;
+  probeV2Workspace?: boolean;
 }
 
 function isLoopback(address: string | undefined): boolean {
@@ -179,6 +180,7 @@ export class BridgeDaemon {
   readonly #store: JobStore;
   readonly #scheduler: JobScheduler;
   readonly #v2: V2ReviewService;
+  readonly #probeV2Workspace: boolean;
   readonly #tokenEnvironmentWriter: TokenEnvironmentWriter;
   #token = "";
   #ownerTokens: Record<V2Owner, string> = { codex: "", claude: "" };
@@ -195,6 +197,7 @@ export class BridgeDaemon {
       ?? (process.env.BRIDGE_SKIP_ACL === "1"
         ? async () => undefined
         : mirrorTokenToUserEnvironment);
+    this.#probeV2Workspace = options.probeV2Workspace ?? process.env.BRIDGE_SKIP_ACL !== "1";
     this.#lock = new DaemonLock(this.#paths.lock);
     this.#audit = new AuditLog(this.#paths.audit);
     this.#sessions = new SessionStore(this.#paths.sessions);
@@ -244,7 +247,7 @@ export class BridgeDaemon {
       };
       const config = await ensureBridgeConfig(this.#paths);
       await Promise.all([this.#sessions.load(), this.#store.load()]);
-      await this.#v2.initialize({ probe: process.env.BRIDGE_SKIP_ACL !== "1" });
+      await this.#v2.initialize();
       this.#server = createServer((request, response) => {
         void this.#handle(request, response);
       });
@@ -290,7 +293,8 @@ export class BridgeDaemon {
           protocol_version: BRIDGE_PROTOCOL_VERSION,
           config_schema: config.config.schemaVersion,
           config_hash: config.hash,
-          v2_workspace_tests: this.#v2.isActive(),
+          v2_inline_reviews: this.#v2.isActive(),
+          v2_workspace_repairs: this.#v2.workspaceRepairsAvailable(),
         },
       });
       await writeEndpoint(this.#paths.endpoint, {
@@ -312,6 +316,21 @@ export class BridgeDaemon {
           claude: `http://${LOOPBACK_HOST}:${String(address.port)}${BRIDGE_CLAUDE_MCP_PATH}`,
         },
       });
+      if (this.#probeV2Workspace) {
+        void this.#v2.refreshWorkspaceCapabilities().then((capabilities) =>
+          this.#audit.append({
+            at: new Date().toISOString(),
+            event: "v2_workspace_probe_completed",
+            metadata: {
+              workspace_repairs: capabilities.workspaceRepairs,
+              workspace_probe_state: capabilities.workspaceProbeState,
+              ...(capabilities.workspaceProbeReason === undefined
+                ? {}
+                : { workspace_probe_reason: capabilities.workspaceProbeReason }),
+            },
+          }).catch(() => undefined),
+        );
+      }
     } catch (error) {
       await this.#scheduler.stop().catch(() => undefined);
       await this.#closeServer();
@@ -403,7 +422,13 @@ export class BridgeDaemon {
             codex: `http://${LOOPBACK_HOST}:${String(this.#boundPort)}${BRIDGE_CODEX_MCP_PATH}`,
             claude: `http://${LOOPBACK_HOST}:${String(this.#boundPort)}${BRIDGE_CLAUDE_MCP_PATH}`,
           },
-          v2_capabilities: this.#v2.capabilities() ?? { v2WorkspaceTests: false },
+          v2_capabilities: this.#v2.capabilities() ?? {
+            v2WorkspaceTests: false,
+            inlineReviews: false,
+            workspaceRepairs: false,
+            workspaceProbeState: "pending",
+            workspaceProbeReason: "not_started",
+          },
           pid: process.pid,
           host: LOOPBACK_HOST,
           started_at: this.#startedAt,
@@ -442,7 +467,13 @@ export class BridgeDaemon {
           active_mcp_requests: this.#activeMcpRequests,
           jobs: states,
           sessions: this.#sessions.list(),
-          v2_capabilities: this.#v2.capabilities() ?? { v2WorkspaceTests: false },
+          v2_capabilities: this.#v2.capabilities() ?? {
+            v2WorkspaceTests: false,
+            inlineReviews: false,
+            workspaceRepairs: false,
+            workspaceProbeState: "pending",
+            workspaceProbeReason: "not_started",
+          },
         });
         return;
       }

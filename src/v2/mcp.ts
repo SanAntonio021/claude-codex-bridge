@@ -180,7 +180,13 @@ export function createV2BridgeMcpServer(options: V2McpServerOptions): McpServer 
           version: BRIDGE_VERSION,
           build_id: BRIDGE_BUILD_ID,
           owner,
-          capabilities: service.capabilities() ?? { v2WorkspaceTests: false },
+          capabilities: service.capabilities() ?? {
+            v2WorkspaceTests: false,
+            inlineReviews: false,
+            workspaceRepairs: false,
+            workspaceProbeState: "pending",
+            workspaceProbeReason: "not_started",
+          },
           active: service.isActive(),
         }
       : publicJob(service.get(job_id))),

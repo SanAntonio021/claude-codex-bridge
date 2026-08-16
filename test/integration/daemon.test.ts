@@ -28,6 +28,7 @@ import {
 import { requestDaemon } from "../../src/daemon/client.js";
 import { ensureDaemon } from "../../src/daemon/ensure.js";
 import { BridgeDaemon } from "../../src/daemon/server.js";
+import { V2ReviewService } from "../../src/v2/service.js";
 import {
   prepareRuntime,
   readEndpoint,
@@ -331,6 +332,100 @@ async function waitForProcessExit(pid: number, timeoutMs = 5_000): Promise<void>
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
+
+test("daemon publishes inline v2 before a slow workspace sandbox probe finishes", async () => {
+  const paths = await temporaryPaths("bridge-v2-background-probe-");
+  let releaseProbe: ((value: {
+    at: string;
+    v2WorkspaceTests: boolean;
+    workspaceWrite: boolean;
+    externalWriteDenied: boolean;
+    loopbackDenied: boolean;
+    internetDenied: boolean;
+    childInheritanceDenied: boolean;
+    childTreeTerminated: boolean;
+  }) => void) | undefined;
+  let probeStarted = false;
+  const probe = new Promise<{
+    at: string;
+    v2WorkspaceTests: boolean;
+    workspaceWrite: boolean;
+    externalWriteDenied: boolean;
+    loopbackDenied: boolean;
+    internetDenied: boolean;
+    childInheritanceDenied: boolean;
+    childTreeTerminated: boolean;
+  }>((resolveProbe) => {
+    releaseProbe = resolveProbe;
+  });
+  const v2Service = new V2ReviewService({
+    runtimeRoot: paths.root,
+    runner: { async run() { throw new Error("The probe test does not submit a v2 job."); } },
+    probe: async () => {
+      probeStarted = true;
+      return probe;
+    },
+  });
+  const daemon = new BridgeDaemon({
+    paths,
+    adapter: new FakeRunner(),
+    port: 0,
+    v2Service,
+    probeV2Workspace: true,
+  });
+  const starting = daemon.start();
+  try {
+    const started = await Promise.race([
+      starting.then(() => true),
+      new Promise<boolean>((resolveDelay) => setTimeout(() => resolveDelay(false), 1_000)),
+    ]);
+    assert.equal(started, true);
+    assert.equal(probeStarted, true);
+    assert.equal(v2Service.isActive(), true);
+    assert.equal(v2Service.workspaceRepairsAvailable(), false);
+    assert.equal(v2Service.capabilities()?.workspaceProbeState, "pending");
+
+    const health = await requestDaemon<Record<string, unknown>>("/health", { paths });
+    assert.deepEqual(health["supported_protocols"], [BRIDGE_LEGACY_PROTOCOL_VERSION, BRIDGE_PROTOCOL_VERSION]);
+    assert.equal(
+      (health["v2_capabilities"] as Record<string, unknown> | undefined)?.["workspaceProbeState"],
+      "pending",
+    );
+
+    releaseProbe?.({
+      at: new Date().toISOString(),
+      v2WorkspaceTests: true,
+      workspaceWrite: true,
+      externalWriteDenied: true,
+      loopbackDenied: true,
+      internetDenied: true,
+      childInheritanceDenied: true,
+      childTreeTerminated: true,
+    });
+    const deadline = Date.now() + 2_000;
+    while (!v2Service.workspaceRepairsAvailable()) {
+      if (Date.now() >= deadline) {
+        assert.fail("The completed workspace probe did not update v2 capabilities.");
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+    }
+    assert.equal(v2Service.capabilities()?.workspaceProbeState, "available");
+  } finally {
+    releaseProbe?.({
+      at: new Date().toISOString(),
+      v2WorkspaceTests: true,
+      workspaceWrite: true,
+      externalWriteDenied: true,
+      loopbackDenied: true,
+      internetDenied: true,
+      childInheritanceDenied: true,
+      childTreeTerminated: true,
+    });
+    await starting.catch(() => undefined);
+    await daemon.stop();
+    await rm(paths.root, { recursive: true, force: true });
+  }
+});
 
 test("daemon serves authenticated stateless MCP requests and cleans each request", async () => {
   const paths = await temporaryPaths("bridge-http-mcp-");

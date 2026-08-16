@@ -147,6 +147,20 @@
       "expected_output": "按确认计划执行并由作者独立验收，不自动追加互审。",
       "files": [],
       "expectations": ["执行阶段不创建新的 peer job。"]
+    },
+    {
+      "id": 21,
+      "prompt": "peer_status 显示 inlineReviews=true、workspaceRepairs=false、workspaceProbeState=unavailable。请让 Opus 审查这份纯文字计划。",
+      "expected_output": "使用 review_peer 做 inline zero-tool 审查；不传 workspace 字段，不等待或重启 daemon。",
+      "files": [],
+      "expectations": ["workspace probe 失败不关闭安全的 inline 审查。", "正文身份仍在本轮重新计算。"]
+    },
+    {
+      "id": 22,
+      "prompt": "peer_status 显示 workspaceProbeState=pending，但我要让 Codex 在固定副本中修改 plan.md 并运行结构化测试。",
+      "expected_output": "不调用 review_repair_peer workspace，不创建 job；输出 decisiveError=v2_workspace_capability_unavailable 的失败报告。",
+      "files": [],
+      "expectations": ["不得静默改成 inline 修订。", "不得重启 daemon 或改用其他 sandbox。"]
     }
   ]
 }
