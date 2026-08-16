@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.claude-codex-bridge/schemas/job-record.schema.json",
+  "title": "Legacy protocol-v1 protected bridge job record",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["job_id", "version", "build_id", "protocol_version", "state", "request", "created_at", "updated_at", "history"],
+  "properties": {
+    "job_id": { "type": "string", "format": "uuid" },
+    "version": { "const": "0.5.0" },
+    "build_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "protocol_version": { "type": "integer", "minimum": 1 },
+    "state": {
+      "enum": [
+        "queued",
+        "dispatching",
+        "transport_delivered",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "expired",
+        "needs_attention"
+      ]
+    },
+    "request": { "$ref": "job-request.schema.json" },
+    "direction": { "enum": ["codex_to_claude", "claude_to_codex"] },
+    "peer_session_id": { "type": "string" },
+    "claude_session_id": { "type": "string" },
+    "result": { "type": "string" },
+    "result_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "context_reset": { "type": "boolean" },
+    "child_pid": { "type": "integer", "minimum": 1 },
+    "cancellation_requested_at": { "type": "string", "format": "date-time" },
+    "adapter_details": {
+      "type": "object",
+      "required": ["exit_code", "stderr", "complete_stdout_lines"],
+      "properties": {
+        "exit_code": { "type": ["integer", "null"] },
+        "stderr": { "type": "string" },
+        "complete_stdout_lines": { "type": "array", "items": { "type": "string" } },
+        "reported_model": { "type": "string" },
+        "requested_model": { "type": "string" },
+        "requested_reasoning_effort": { "type": "string" },
+        "cli_version": { "type": "string" },
+        "requested_sandbox_mode": { "type": "string" },
+        "approval_policy": { "type": "string" },
+        "network_access_enabled": { "type": "boolean" },
+        "web_search_mode": { "type": "string" },
+        "project_doc_max_bytes": { "type": "integer", "minimum": 0 },
+        "skill_instructions_enabled": { "type": "boolean" },
+        "environment_context_enabled": { "type": "boolean" },
+        "thread_id": { "type": "string" },
+        "changed_files": { "type": "array", "items": { "type": "string" } },
+        "tests": { "type": "array", "items": { "type": "string" } },
+        "command_failures": { "type": "array", "items": { "type": "string" } },
+        "allowed_tool_patterns": { "type": "array", "items": { "type": "string" } },
+        "workspace_path": { "type": "string" },
+        "baseline_manifest_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "result_manifest_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "isolation_violation": {
+          "type": "object",
+          "required": ["event_index", "tool_name", "reason_code", "preview"],
+          "properties": {
+            "event_index": { "type": "integer", "minimum": 1 },
+            "tool_name": { "type": "string" },
+            "reason_code": { "type": "string" },
+            "preview": { "type": "string", "maxLength": 256 }
+          }
+        },
+        "isolation_violation_raw": {
+          "type": "object",
+          "required": ["event_index", "raw_event"],
+          "properties": {
+            "event_index": { "type": "integer", "minimum": 1 },
+            "raw_event": {}
+          }
+        }
+      }
+    },
+    "sync_status": {
+      "enum": ["not_requested", "prepared", "synced", "awaiting_user", "conflict", "failed"]
+    },
+    "changed_files": { "type": "array", "items": { "type": "string" } },
+    "test_results": { "type": "array", "items": { "type": "string" } },
+    "workspace_manifest": { "$ref": "#/$defs/workspace_manifest" },
+    "result_workspace_manifest": { "$ref": "#/$defs/workspace_manifest" },
+    "workspace_retained_until": { "type": "string", "format": "date-time" },
+    "pending_high_risk": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "action", "path"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "action": { "enum": ["delete", "rename", "permission_change", "type_change"] },
+          "path": { "type": "string" },
+          "from_path": { "type": "string" }
+          ,"before_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          ,"after_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          ,"before_mode": { "type": "integer", "minimum": 0 }
+          ,"after_mode": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "sync_authorization": {
+      "type": "object",
+      "required": ["sync_request_id", "approved_change_ids", "authorized_at"],
+      "properties": {
+        "sync_request_id": { "type": "string", "format": "uuid" },
+        "approved_change_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "authorized_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "at"],
+        "properties": {
+          "state": { "type": "string" },
+          "at": { "type": "string", "format": "date-time" },
+          "error_code": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "workspace_manifest": {
+      "type": "object",
+      "required": ["version", "root", "target_root", "artifact_id", "allowed_paths", "files", "created_at", "updated_at"],
+      "properties": {
+        "version": { "const": 1 },
+        "root": { "type": "string" },
+        "target_root": { "type": "string" },
+        "artifact_id": { "type": "string" },
+        "allowed_paths": { "type": "array", "items": { "type": "string" } },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["relative_path", "bytes", "sha256", "kind"],
+            "properties": {
+              "relative_path": { "type": "string" },
+              "bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "type": "string" },
+              "kind": { "enum": ["file", "directory", "symlink"] },
+              "mode": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "retained_until": { "type": "string", "format": "date-time" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

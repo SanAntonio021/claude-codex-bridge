@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "claude-codex-bridge-codex": {
+      "type": "http",
+      "url": "http://127.0.0.1:43123/mcp/codex",
+      "headers": {
+        "X-Bridge-Token": "${CLAUDE_CODEX_BRIDGE_CODEX_TOKEN}"
+      },
+      "env_http_headers": {
+        "X-Bridge-Token": "CLAUDE_CODEX_BRIDGE_CODEX_TOKEN"
+      }
+    },
+    "claude-codex-bridge-claude": {
+      "type": "http",
+      "url": "http://127.0.0.1:43123/mcp/claude",
+      "headers": {
+        "X-Bridge-Token": "${CLAUDE_CODEX_BRIDGE_CLAUDE_TOKEN}"
+      },
+      "env_http_headers": {
+        "X-Bridge-Token": "CLAUDE_CODEX_BRIDGE_CLAUDE_TOKEN"
+      }
+    }
+  }
+}

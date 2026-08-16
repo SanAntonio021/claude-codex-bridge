@@ -1,0 +1,12 @@
+{
+  "name": "claude-codex-bridge",
+  "version": "0.5.0",
+  "description": "Local authenticated MCP bridge and isolated cross-model review skill.",
+  "author": {
+    "name": "SanAntonio021",
+    "url": "https://github.com/SanAntonio021"
+  },
+  "repository": "https://github.com/SanAntonio021/claude-codex-bridge",
+  "license": "MIT",
+  "keywords": ["mcp", "peer-review", "claude-code", "codex"]
+}

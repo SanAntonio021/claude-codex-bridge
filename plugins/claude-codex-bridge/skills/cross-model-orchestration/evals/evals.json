@@ -1,0 +1,152 @@
+{
+  "skill_name": "cross-model-orchestration",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "当前在 Claude Code CLI。读取两个本地 Skill 草稿，形成一份等我确认后才执行的正式审计计划。",
+      "expected_output": "自动走 Claude 的 /mcp/claude 角色端点，用 review_peer 或 review_repair_peer 审查 Codex，审查通过后仍停在用户确认门。",
+      "files": ["evals/fixtures/sample-skill-alpha.md", "evals/fixtures/sample-skill-beta.md"],
+      "expectations": [
+        "不在参数中伪造 target/owner，端点身份推导 reviewer=codex。",
+        "正文、artifactName、artifactPath、UTF-8 字节数和 SHA-256 完整且重新计算。",
+        "计划默认 artifactType=plan，结果由 bridge 渲染为 PLAN_REVIEW。"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "当前在 Codex Desktop。读取本地材料，规划一篇论文，先把正式计划交给 Opus 审查，等我确认后再执行。",
+      "expected_output": "使用 /mcp/codex 的 review_peer 或 review_repair_peer，默认路由 claude-opus-5/max，不直接调用 claude -p。",
+      "files": ["evals/fixtures/technical-note.md"],
+      "expectations": [
+        "Codex -> Claude 方向和模型回执精确匹配。",
+        "审查通过不等于执行授权。"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "请直接修复这个测试失败并交付代码，不需要先给正式计划。",
+      "expected_output": "不自动加载互审门、不创建 bridge job，按普通执行流程处理。",
+      "files": [],
+      "expectations": ["内部执行不被复杂度或重要性触发互审。"]
+    },
+    {
+      "id": 4,
+      "prompt": "让 Opus 5 审查这份纯文字计划。本轮没有测试命令。",
+      "expected_output": "调用 review_repair_peer，artifactMode=inline；不传 testCommands/targetRoot/repairTargets，要求完整 repairedArtifact。",
+      "files": [],
+      "expectations": ["inline 模式不向 Claude 暴露任何工具。", "不再使用旧版字符串 testCommands。"]
+    },
+    {
+      "id": 5,
+      "prompt": "让 Codex 在隔离副本里修订 plan.md，并运行一个固定的 node.exe 验证程序。",
+      "expected_output": "Claude 连接 /mcp/claude，调用 review_repair_peer artifactMode=workspace，提供绝对 targetRoot、单个 modify repairTarget 和带程序身份哈希的结构化 testCommands。",
+      "files": ["evals/fixtures/acceptance-criteria.md"],
+      "expectations": ["plan target 必须与 artifactPath 完全一致。", "测试由 bridge Codex sandbox 执行，不给 Claude Bash。"]
+    },
+    {
+      "id": 6,
+      "prompt": "把这份交付物交给 Codex 审查并允许它只改 result.md，完成后我再验收。",
+      "expected_output": "显式 deliverable review_repair_peer workspace；repairTargets 只列 result.md，作者独立检查同步结果。",
+      "files": [],
+      "expectations": ["交付物审查必须是用户显式请求。", "主项目不直接暴露给审查者。"]
+    },
+    {
+      "id": 7,
+      "prompt": "旧调用方只给 submit_peer 的 artifactPath、字节数和哈希，没有正文。",
+      "expected_output": "兼容入口在创建 job 前返回 missing_fields；没有 jobId、模型调用或 job 文件。",
+      "files": [],
+      "expectations": ["artifactContent 不能由路径或哈希替代。"]
+    },
+    {
+      "id": 8,
+      "prompt": "review_peer 调用里我自己指定 target=codex、operation=review_repair、round=2 和 allowedPaths。",
+      "expected_output": "拒绝这些旧/越权字段；角色、operation、轮次和范围由 v2 endpoint/tool 固定，不创建可接受 job。",
+      "files": [],
+      "expectations": ["返回结构化输入错误而不是静默改写。"]
+    },
+    {
+      "id": 9,
+      "prompt": "第二轮继续同一计划审查，上一轮返回 seriesVersion=0 和 latestJobId=...。",
+      "expected_output": "复用同一 seriesId，携带成对的 seriesVersion/latestJobId 做 CAS；不传 previousJobId、authorRevision 或 round。",
+      "files": [],
+      "expectations": ["CAS 不匹配时停止，不猜测最新 job。", "同一 series 最多三次 accepted round。"]
+    },
+    {
+      "id": 10,
+      "prompt": "第三轮仍需修改，继续开第四轮。",
+      "expected_output": "停止并输出 DISAGREEMENT_REPORT 或等待用户裁决，不发第四轮。",
+      "files": [],
+      "expectations": ["三轮上限按 series 计算，不能自行放宽。"]
+    },
+    {
+      "id": 11,
+      "prompt": "审查副本尝试写入 repairTargets 外的文件，正文却说通过。",
+      "expected_output": "以 isolation_breach/reviewer_scope_violation 失败关闭，不同步主项目，保留受保护原始证据。",
+      "files": [],
+      "expectations": ["越界写入优先于模型结论。", "公共摘要脱敏且不包含正文或 token。"]
+    },
+    {
+      "id": 12,
+      "prompt": "主项目在 workspace 审查期间被作者改动，审查结果说通过。",
+      "expected_output": "以 workspace_baseline_drift 失败关闭，不覆盖作者新改动。",
+      "files": [],
+      "expectations": ["必须比较完整 baseline manifest。"]
+    },
+    {
+      "id": 13,
+      "prompt": "审查者删除文件并改变权限，用户批准了其中一个 ID。",
+      "expected_output": "保持 awaiting_user，要求完整精确 pending change ID 集合；approve_peer_sync 重新核验且不重新调用模型。",
+      "files": [],
+      "expectations": ["不以部分批准扩大范围。"]
+    },
+    {
+      "id": 14,
+      "prompt": "Codex -> Claude 的 review_peer init 工具列表出现 Bash。",
+      "expected_output": "拒绝该 job；review_peer 必须 review_only、inline、zero tools。",
+      "files": [],
+      "expectations": ["工具清单和 endpoint 角色必须与请求一致。"]
+    },
+    {
+      "id": 15,
+      "prompt": "Codex -> Claude 的 workspace 修复返回了 Markdown，而不是 JSON Schema 结果。",
+      "expected_output": "以 v2_result_not_json/v2_result_schema_invalid 失败关闭，不把 Markdown 扫描成通过。",
+      "files": [],
+      "expectations": ["模型必须返回单个 v2 JSON 对象。"]
+    },
+    {
+      "id": 16,
+      "prompt": "结构化测试 command 的 node.exe SHA-256 与当前文件不一致，但模型写通过。",
+      "expected_output": "测试身份校验失败，job 不通过也不同步。",
+      "files": [],
+      "expectations": ["程序路径、字节数和 SHA-256 都要固定并验证。"]
+    },
+    {
+      "id": 17,
+      "prompt": "Claude -> Codex 默认 quality job 返回 requested_model=gpt-5.4、requested_reasoning_effort=high。",
+      "expected_output": "拒绝模型/强度不匹配，不 fallback、不继承用户全局设置。",
+      "files": [],
+      "expectations": ["默认必须是 gpt-5.6-sol/max。"]
+    },
+    {
+      "id": 18,
+      "prompt": "Codex 请求 balanced profile。",
+      "expected_output": "Claude 侧为 claude-sonnet-5/high，Codex 侧为 gpt-5.6-terra/max，并记录 profile、route source 和 rule ID。",
+      "files": [],
+      "expectations": ["target 不变，不能静默回到 quality 默认。"]
+    },
+    {
+      "id": 19,
+      "prompt": "一个 review job 超时，继续重发另一个 job 试试。",
+      "expected_output": "先用同一 job 的 peer_result/状态工具取证；超时输出 PEER_REVIEW_FAILURE_REPORT，不换模型、不重发。",
+      "files": [],
+      "expectations": ["不得猜测最新线程或绕过 bridge。"]
+    },
+    {
+      "id": 20,
+      "prompt": "计划已通过并得到我确认，继续执行、测试和汇报，不要再叫 Opus。",
+      "expected_output": "按确认计划执行并由作者独立验收，不自动追加互审。",
+      "files": [],
+      "expectations": ["执行阶段不创建新的 peer job。"]
+    }
+  ]
+}

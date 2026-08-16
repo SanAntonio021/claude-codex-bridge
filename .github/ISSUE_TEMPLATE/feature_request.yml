@@ -1,0 +1,18 @@
+name: Feature request
+description: Propose a bounded bridge or skill improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Security and isolation impact
+      description: Explain effects on authentication, workspaces, model routing, or synchronization.
+    validations:
+      required: true

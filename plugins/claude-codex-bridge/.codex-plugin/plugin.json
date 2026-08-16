@@ -1,0 +1,28 @@
+{
+  "name": "claude-codex-bridge",
+  "version": "0.5.0",
+  "description": "Local authenticated cross-model review over claude-codex-bridge.",
+  "author": {
+    "name": "SanAntonio021",
+    "url": "https://github.com/SanAntonio021"
+  },
+  "homepage": "https://github.com/SanAntonio021/claude-codex-bridge#readme",
+  "repository": "https://github.com/SanAntonio021/claude-codex-bridge",
+  "license": "MIT",
+  "keywords": ["mcp", "claude", "codex", "peer-review", "isolation"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude Codex Bridge",
+    "shortDescription": "Run bounded Claude/Codex peer review through a local MCP daemon.",
+    "longDescription": "A local authenticated bridge and skill for isolated, evidence-gated cross-model review.",
+    "developerName": "SanAntonio021",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Review this formal plan with the configured peer model.",
+      "Show the bridge status and configured model routes.",
+      "Explain the isolated review contract before I submit a job."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

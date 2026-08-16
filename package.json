@@ -1,0 +1,68 @@
+{
+  "name": "claude-codex-bridge",
+  "version": "0.5.0",
+  "description": "Local authenticated bidirectional MCP bridge for isolated Claude and Codex peer sessions.",
+  "license": "MIT",
+  "author": "SanAntonio021",
+  "homepage": "https://github.com/SanAntonio021/claude-codex-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SanAntonio021/claude-codex-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SanAntonio021/claude-codex-bridge/issues"
+  },
+  "files": [
+    "dist",
+    "plugins",
+    "schemas",
+    "scripts",
+    "src",
+    "test",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "PRIVACY.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "bin": {
+    "bridge": "./dist/src/cli/main.js",
+    "claude-codex-bridge-mcp": "./dist/src/mcp/main.js"
+  },
+  "exports": {
+    "./daemon": "./dist/src/daemon/main.js",
+    "./mcp": "./dist/src/mcp/main.js",
+    "./cli": "./dist/src/cli/main.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm.cmd run build && node --test \"dist/test/unit/*.test.js\" \"dist/test/integration/*.test.js\"",
+    "test:unit": "npm.cmd run build && node --test \"dist/test/unit/*.test.js\"",
+    "test:integration": "npm.cmd run build && node --test \"dist/test/integration/*.test.js\"",
+    "test:live": "npm.cmd run build && node dist/test/live/m1-live.js",
+    "test:live:opus5": "npm.cmd run build && node dist/test/live/m1-opus5-live.js",
+    "test:live:codex": "npm.cmd run build && node dist/test/live/m3-codex-live.js",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "package:release": "node scripts/package-release.mjs",
+    "start": "node dist/src/cli/main.js start",
+    "stop": "node dist/src/cli/main.js stop",
+    "doctor": "node dist/src/cli/main.js doctor",
+    "rotate-token": "node dist/src/cli/main.js rotate-token",
+    "install-daemon-task": "node dist/src/cli/main.js install-daemon-task"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@openai/codex-sdk": "0.146.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}

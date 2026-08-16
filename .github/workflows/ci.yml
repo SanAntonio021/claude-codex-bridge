@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm.cmd ci
+      - run: npm.cmd test
+      - run: node --test plugins/claude-codex-bridge/skills/cross-model-orchestration/test/public-skill.test.mjs
+      - run: node --test plugins/claude-codex-bridge/skills/cross-model-orchestration/tests/orchestration-control.test.mjs
+      - run: npm.cmd run sbom

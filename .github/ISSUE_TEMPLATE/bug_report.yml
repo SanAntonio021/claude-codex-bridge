@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a deterministic bridge defect without sensitive material.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include tokens, raw prompts, user artifacts, job details, or provider credentials.
+  - type: input
+    id: version
+    attributes:
+      label: Version and build ID
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use synthetic content only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
