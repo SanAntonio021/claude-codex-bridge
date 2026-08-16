@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-bridge",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Local authenticated cross-model review over claude-codex-bridge.",
   "author": {
     "name": "SanAntonio021",

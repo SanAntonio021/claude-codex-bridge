@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 - 2026-08-16
+
+- Restricted installation-time ACL hardening to runtime roots and the new
+  release staging tree, leaving retained job and test evidence untouched.
+
 ## 0.5.2 - 2026-08-16
 
 - Fixed Windows release-tree hardening so existing leaf files retain an explicit

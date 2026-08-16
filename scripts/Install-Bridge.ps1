@@ -39,21 +39,25 @@ function Get-Sha256File {
     }
 }
 
+function Protect-BridgeDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $directoryPermission = ('*{0}:(OI)(CI)(F)' -f (Get-CurrentUserSid))
+    & icacls.exe $Path '/inheritance:r' '/grant:r' $directoryPermission | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to apply inheritable owner-only ACL to $Path."
+    }
+}
+
 function Protect-BridgeTree {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $sid = Get-CurrentUserSid
     # icacls drops an inheritance-only ACE when it is applied directly to a leaf.
-    # First grant every existing object directly, then restore inheritance on the root directory.
-    $objectPermission = ('*{0}:(F)' -f $sid)
-    $directoryPermission = ('*{0}:(OI)(CI)(F)' -f $sid)
+    # Existing release objects need a direct ACE; only the new tree's root needs inheritance.
+    $objectPermission = ('*{0}:(F)' -f (Get-CurrentUserSid))
     & icacls.exe $Path '/inheritance:r' '/grant:r' $objectPermission '/T' '/C' | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to apply owner-only ACL to $Path."
     }
-    & icacls.exe $Path '/grant:r' $directoryPermission | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to restore inheritable owner-only ACL to $Path."
-    }
+    Protect-BridgeDirectory -Path $Path
 }
 
 function Protect-BridgeFile {
@@ -133,8 +137,8 @@ $staging = Join-Path $releasesRoot ('.staging-{0}-{1}' -f $releaseId, $PID)
 $pointerPath = Join-Path $runtimeRoot 'current.json'
 
 New-Item -ItemType Directory -Path $releasesRoot -Force | Out-Null
-Protect-BridgeTree -Path $runtimeRoot
-Protect-BridgeTree -Path $releasesRoot
+Protect-BridgeDirectory -Path $runtimeRoot
+Protect-BridgeDirectory -Path $releasesRoot
 if (Test-Path -LiteralPath $destination) {
     $installed = Read-JsonFile -Path (Join-Path $destination 'release-manifest.json')
     if ($installed.build_id -ne $build.build_id) {

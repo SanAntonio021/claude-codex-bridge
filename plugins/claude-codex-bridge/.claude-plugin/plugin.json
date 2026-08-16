@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-bridge",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Local authenticated MCP bridge and isolated cross-model review skill.",
   "author": {
     "name": "SanAntonio021",

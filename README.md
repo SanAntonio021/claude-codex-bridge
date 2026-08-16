@@ -5,7 +5,7 @@ cross-model review between Claude Code and Codex. It gives the reviewer an
 isolated artifact or a fixed workspace copy; it never gives the reviewer a
 direct write path to the author's working tree.
 
-This is version `0.5.2`, with protocol version `2`. It fails closed when
+This is version `0.5.3`, with protocol version `2`. It fails closed when
 authentication, model routing, isolation, test, or synchronization evidence is
 incomplete. Chinese documentation: [README.zh-CN.md](README.zh-CN.md).
 

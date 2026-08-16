@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-bridge",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Local authenticated bidirectional MCP bridge for isolated Claude and Codex peer sessions.",
   "license": "MIT",
   "author": "SanAntonio021",
