@@ -27,12 +27,32 @@ function Get-CurrentUserSid {
     return $identity.User.Value
 }
 
+function Get-Sha256File {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Protect-BridgeTree {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $permission = ('*{0}:(OI)(CI)F' -f (Get-CurrentUserSid))
-    & icacls.exe $Path '/inheritance:r' '/grant:r' $permission '/T' '/C' | Out-Null
+    $sid = Get-CurrentUserSid
+    # icacls drops an inheritance-only ACE when it is applied directly to a leaf.
+    # First grant every existing object directly, then restore inheritance on the root directory.
+    $objectPermission = ('*{0}:(F)' -f $sid)
+    $directoryPermission = ('*{0}:(OI)(CI)(F)' -f $sid)
+    & icacls.exe $Path '/inheritance:r' '/grant:r' $objectPermission '/T' '/C' | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to apply owner-only ACL to $Path."
+    }
+    & icacls.exe $Path '/grant:r' $directoryPermission | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to restore inheritable owner-only ACL to $Path."
     }
 }
 
@@ -149,9 +169,9 @@ if (Test-Path -LiteralPath $destination) {
             }
         }
         $fingerprints = [ordered]@{
-            package_json = (Get-FileHash -LiteralPath (Join-Path $staging 'package.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-            package_lock = (Get-FileHash -LiteralPath (Join-Path $staging 'package-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-            build_manifest = (Get-FileHash -LiteralPath (Join-Path $staging 'dist\build-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+            package_json = Get-Sha256File -Path (Join-Path $staging 'package.json')
+            package_lock = Get-Sha256File -Path (Join-Path $staging 'package-lock.json')
+            build_manifest = Get-Sha256File -Path (Join-Path $staging 'dist\build-manifest.json')
         }
         Write-AtomicJson -Path (Join-Path $staging 'release-manifest.json') -Value ([ordered]@{
             schema_version = 1

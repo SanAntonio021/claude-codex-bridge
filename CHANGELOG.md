@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 - 2026-08-16
+
+- Fixed Windows release-tree hardening so existing leaf files retain an explicit
+  owner-only read/write ACE after recursive ACL protection.
+
 ## 0.5.1 - 2026-08-16
 
 - Split protocol-v2 capability reporting into always-zero-tool inline review
